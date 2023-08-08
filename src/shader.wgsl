@@ -57,7 +57,6 @@ var s_diffuse: sampler;
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.tex_coords * 2.0 - vec2f(1.0);
     let dist = length(uv);
-    let strength = 1.0 - (dist - 1.0) / dpdx(uv).x;
-    if strength < 0.9 { discard; }
-    return vec4f(strength, strength, strength, 1.0);
+    if dist > 1.0 { discard; }
+    return vec4f(1.0);
 }

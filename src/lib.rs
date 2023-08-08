@@ -179,6 +179,8 @@ impl CameraUniform {
     }
 }
 
+const NUM_INSTANCES_PER_ROW: u64 = 1000;
+
 struct Instance {
     position: cgmath::Vector3<f32>,
     rotation: cgmath::Quaternion<f32>,
@@ -262,6 +264,8 @@ struct State {
     clear_color: wgpu::Color,
 }
 
+const FORCE_HIGH_PERFORMANCE: bool = true;
+
 impl State {
     async fn new(window: Window) -> Self {
         let size = window.inner_size();
@@ -274,7 +278,7 @@ impl State {
 
         let adapter = instance.request_adapter(
             &wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
+                power_preference: if FORCE_HIGH_PERFORMANCE { wgpu::PowerPreference::HighPerformance } else { wgpu::PowerPreference::default() },
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             },
@@ -460,9 +464,6 @@ impl State {
             }
         );
         let num_vertices: u32 = VERTICES.len() as u32;
-
-        const NUM_INSTANCES_PER_ROW: u64 = 500;
-        const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(NUM_INSTANCES_PER_ROW as f32 * 0.5, 0.0, NUM_INSTANCES_PER_ROW as f32 * 0.5);
         
         let mut instances: Vec<Instance> = Vec::new();
 
@@ -627,7 +628,7 @@ impl State {
         compute_pass.set_pipeline(&self.compute_pipeline);
         compute_pass.set_bind_group(0, &self.compute_bind_group, &[]);
         compute_pass.set_bind_group(1, &self.vector_field_bind_group, &[]);
-        compute_pass.dispatch_workgroups((250000f32 / 64f32).ceil() as u32, 1, 1);
+        compute_pass.dispatch_workgroups(((NUM_INSTANCES_PER_ROW * NUM_INSTANCES_PER_ROW) as f32 / 64f32).ceil() as u32, 1, 1);
         
         drop(compute_pass);
         

@@ -43,12 +43,18 @@ fn create_basis(origin: vec4f, forward: vec3f, up: vec3f) -> mat4x4<f32> {
     return mat4x4<f32>(vec4f(right, 0.0), vec4f(up_basis, 0.0), vec4f(forward, 0.0), origin);
 }
 
+const NUM_STEPS = 1;
+const STEP_SIZE = 0.005;
+
 @compute
 @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var pos = instance_matrices[global_id.x][3];
-    let step = rk4_eval(pos * 50.0, vector_field_texture, 0.005);
-    pos += step;
+    var step: vec4f;
+    for(var i: i32 = 0; i < NUM_STEPS; i++) {
+        step = rk4_eval(pos * 50.0, vector_field_texture, STEP_SIZE);
+        pos += step;
+    }
     let basis = create_basis(pos, normalize(step).xyz, vec3f(0.0, 1.0, 0.0));
     instance_matrices[global_id.x] = basis;
 }
