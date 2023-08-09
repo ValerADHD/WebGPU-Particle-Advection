@@ -12,6 +12,8 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
 };
 
+use std::time::Instant;
+
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -306,7 +308,7 @@ impl State {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: surface_caps.present_modes[0],
+            present_mode: wgpu::PresentMode::AutoNoVsync,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
         };
@@ -707,6 +709,14 @@ pub async fn run() {
 
     let mut state = State::new(window).await;
 
+    let mut frame_start: Instant;
+    cfg_if::cfg_if! {
+        if #[cfg(target_arch="wasm32")] {} else {
+            frame_start = Instant::now();
+        }
+    }
+    
+
     event_loop.run(move |event, _, control_flow| {
         match event {
             // event is for correct window
@@ -743,7 +753,20 @@ pub async fn run() {
                     Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
                     Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
                     Err(e) => eprintln!("{:?}", e),
+                };
+                cfg_if::cfg_if! {
+                    if #[cfg(target_arch="wasm32")] {} else {
+                        let frame_time_millis: f64 = { 
+                            let elapsed = frame_start.elapsed().as_micros();
+                            (elapsed as f64) / 1000f64
+                        };
+                        let fps = 1000f64 / frame_time_millis;
+        
+                        state.window().set_title(&format!("frame time: {} ms | {} FPS", frame_time_millis, fps));
+                        frame_start = Instant::now();
+                    }
                 }
+                
             },
             Event::MainEventsCleared => {
                 // manually request a redraw after each loop of handling events.
