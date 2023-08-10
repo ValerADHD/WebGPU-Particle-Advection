@@ -45,10 +45,10 @@ impl Vertex {
 }
 
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [0.5, 0.5, 0.0], tex_coords: [1.0, 0.0], }, // C
-    Vertex { position: [-0.5, 0.5, 0.0], tex_coords: [0.0, 0.0], }, // A
-    Vertex { position: [0.5, -0.5, 0.0], tex_coords: [1.0, 1.0], }, // C
-    Vertex { position: [-0.5, -0.5, 0.0], tex_coords: [0.0, 1.0], }, // B
+    Vertex { position: [0.5, 0.5, 0.0], tex_coords: [1.0, 0.0], },
+    Vertex { position: [-0.5, 0.5, 0.0], tex_coords: [0.0, 0.0], },
+    Vertex { position: [0.5, -0.5, 0.0], tex_coords: [1.0, 1.0], },
+    Vertex { position: [-0.5, -0.5, 0.0], tex_coords: [0.0, 1.0], },
 ];
 
 struct Camera {
@@ -181,7 +181,7 @@ impl CameraUniform {
     }
 }
 
-const NUM_INSTANCES_PER_ROW: u64 = 1000;
+const NUM_INSTANCES_PER_ROW: u64 = 100;
 
 struct Instance {
     position: cgmath::Vector3<f32>,
@@ -707,14 +707,21 @@ pub async fn run() {
             .expect("Couldn't append canvas to document body");
     }
 
+
     let mut state = State::new(window).await;
 
-    let mut frame_start: Instant;
-    cfg_if::cfg_if! {
-        if #[cfg(target_arch="wasm32")] {} else {
-            frame_start = Instant::now();
-        }
-    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut frame_start: Instant = Instant::now();
+    
+    #[cfg(target_arch = "wasm32")]
+    let (performance, mut frame_start) = {
+        let perf = web_sys::window()
+            .and_then(|win| win.performance())
+            .expect("unable to get performance profiler for window!");
+
+        let frame_start = perf.now();
+        (perf, frame_start)
+    };
     
 
     event_loop.run(move |event, _, control_flow| {
@@ -754,17 +761,28 @@ pub async fn run() {
                     Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
                     Err(e) => eprintln!("{:?}", e),
                 };
-                cfg_if::cfg_if! {
-                    if #[cfg(target_arch="wasm32")] {} else {
-                        let frame_time_millis: f64 = { 
-                            let elapsed = frame_start.elapsed().as_micros();
-                            (elapsed as f64) / 1000f64
-                        };
-                        let fps = 1000f64 / frame_time_millis;
-        
-                        state.window().set_title(&format!("frame time: {} ms | {} FPS", frame_time_millis, fps));
-                        frame_start = Instant::now();
-                    }
+                
+                #[cfg(not(target_arch="wasm32"))] {
+                    let frame_time_millis: f64 = { 
+                        let elapsed = frame_start.elapsed().as_micros();
+                        (elapsed as f64) / 1000f64
+                    };
+                    let fps = 1000f64 / frame_time_millis;
+    
+                    state.window().set_title(&format!("frame time: {:.2} ms | {:.2} FPS", frame_time_millis, fps));
+                    frame_start = Instant::now();
+                }
+                #[cfg(target_arch="wasm32")] {
+                    let frame_end: f64 = performance.now();
+                    let frame_time_millis = frame_end - frame_start;
+                    let fps = 1000f64 / frame_time_millis;
+
+                    let doc = web_sys::window()
+                        .and_then(|win| win.document())
+                        .expect("unable to get document handle!");
+                    doc.set_title(&format!("frame time: {:.2} ms | {:.2} FPS", frame_time_millis, fps));
+
+                    frame_start = frame_end;
                 }
                 
             },
