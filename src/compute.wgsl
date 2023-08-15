@@ -44,7 +44,7 @@ fn create_basis(origin: vec4f, forward: vec3f, up: vec3f) -> mat4x4<f32> {
 }
 
 const NUM_STEPS = 1;
-const STEP_SIZE = 0.005;
+const STEP_SIZE = 0.000005;
 
 @compute
 @workgroup_size(64)

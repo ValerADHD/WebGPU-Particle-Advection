@@ -16,7 +16,7 @@ use std::{time::Instant, fmt::Debug};
 
 use wgpu::util::DeviceExt;
 
-fn read_gpu_buffer<'a>(device: &wgpu::Device, queue: &wgpu::Queue, buf: &wgpu::Buffer) -> Vec<u64> {
+async fn read_gpu_buffer<'a>(device: &wgpu::Device, queue: &wgpu::Queue, buf: &wgpu::Buffer) -> Vec<u64> {
     let size = buf.size();
 
     let gpu_read_buffer = device.create_buffer(&wgpu::BufferDescriptor { 
@@ -34,17 +34,20 @@ fn read_gpu_buffer<'a>(device: &wgpu::Device, queue: &wgpu::Queue, buf: &wgpu::B
     queue.submit([encoder.finish()]);
 
     let slice = gpu_read_buffer.slice(..);
-    slice.map_async(wgpu::MapMode::Read, |err| { err.expect("Unable to map read buffer!") });
 
+    let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
+    slice.map_async(wgpu::MapMode::Read, move |result| sender.send(result).unwrap() );
+    
     device.poll(wgpu::Maintain::Wait);
-
-    let data = slice.get_mapped_range();
-    let result = bytemuck::cast_slice(&data).to_vec();
-
-    drop(data);
-    gpu_read_buffer.unmap();
-
-    result
+    if let Some(Ok(())) = receiver.receive().await {
+        let data = slice.get_mapped_range();
+        let result = bytemuck::cast_slice(&data).to_vec();
+    
+        drop(data);
+        gpu_read_buffer.unmap();
+        
+        result
+    } else { panic!("cannot read buffer") }
 }
 
 #[repr(C)]
@@ -307,7 +310,6 @@ const RENDERPASS_BEGIN_TIMESTAMP: u32 = 0;
 const RENDERPASS_END_TIMESTAMP: u32 = 1;
 const COMPUTEPASS_BEGIN_TIMESTAMP: u32 = 2;
 const COMPUTEPASS_END_TIMESTAMP: u32 = 3;
-
 
 impl State {
     async fn new(window: Window) -> Self {
@@ -740,7 +742,7 @@ impl State {
         Ok(())
     }
 
-    fn get_debug_timings(&self) {
+    async fn get_debug_timings(&self) {
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Debug Encoder"),
         });
@@ -749,7 +751,7 @@ impl State {
 
         self.queue.submit([encoder.finish()]);
 
-        let timestamps = read_gpu_buffer(&self.device, &self.queue, &self.timestamp_buffer);
+        let timestamps = read_gpu_buffer(&self.device, &self.queue, &self.timestamp_buffer).await;
 
         let timestamp_period = self.queue.get_timestamp_period() as f64;
         let timestamps_ns = timestamps.iter()
@@ -831,7 +833,12 @@ pub async fn run() {
                             state: ElementState::Pressed, virtual_keycode: Some(VirtualKeyCode::T), ..
                         },
                         ..
-                    } => { state.get_debug_timings() },
+                    } => { 
+                        #[cfg(target_arch = "wasm32")]
+                        wasm_bindgen_futures::spawn_local(state.get_debug_timings());
+                        #[cfg(not(target_arch = "wasm32"))]
+                        pollster::block_on(state.get_debug_timings());
+                    },
                     WindowEvent::Resized(physical_size) => {
                         state.resize(*physical_size);
                     }
