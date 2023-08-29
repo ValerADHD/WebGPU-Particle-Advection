@@ -12,40 +12,9 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
 };
 
-use std::{time::Instant, fmt::Debug};
+use std::time::Instant;
 
 use wgpu::util::DeviceExt;
-
-fn read_gpu_buffer<'a>(device: &wgpu::Device, queue: &wgpu::Queue, buf: &wgpu::Buffer) -> Vec<u64> {
-    let size = buf.size();
-
-    let gpu_read_buffer = device.create_buffer(&wgpu::BufferDescriptor { 
-        size,
-        label: Some("temp read buffer"),
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("Copy encoder"),
-    });
-
-    encoder.copy_buffer_to_buffer(&buf, 0, &gpu_read_buffer, 0, size);
-    queue.submit([encoder.finish()]);
-
-    let slice = gpu_read_buffer.slice(..);
-    slice.map_async(wgpu::MapMode::Read, |err| { err.expect("Unable to map read buffer!") });
-
-    device.poll(wgpu::Maintain::Wait);
-
-    let data = slice.get_mapped_range();
-    let result = bytemuck::cast_slice(&data).to_vec();
-
-    drop(data);
-    gpu_read_buffer.unmap();
-
-    result
-}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -294,20 +263,10 @@ struct State {
     vector_field_bind_group: wgpu::BindGroup,
     vector_field_texture: data::VectorField,
 
-    timestamp_query_set: wgpu::QuerySet,
-    timestamp_buffer: wgpu::Buffer,
-
     clear_color: wgpu::Color,
 }
 
 const FORCE_HIGH_PERFORMANCE: bool = true;
-const NUM_TIMESTAMPS: u32 = 4;
-
-const RENDERPASS_BEGIN_TIMESTAMP: u32 = 0;
-const RENDERPASS_END_TIMESTAMP: u32 = 1;
-const COMPUTEPASS_BEGIN_TIMESTAMP: u32 = 2;
-const COMPUTEPASS_END_TIMESTAMP: u32 = 3;
-
 
 impl State {
     async fn new(window: Window) -> Self {
@@ -329,7 +288,7 @@ impl State {
 
         let (device, queue) = adapter.request_device(
             &wgpu::DeviceDescriptor {
-                features: wgpu::Features::TIMESTAMP_QUERY, //note: does not work on chrome without debug features!
+                features: wgpu::Features::empty(),
                 limits: wgpu::Limits::default(),
                 label: None,
             },
@@ -610,19 +569,6 @@ impl State {
             entry_point: "main",
         });
 
-        let timestamp_query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
-            label: Some("Timestamp Query Set"),
-            count: NUM_TIMESTAMPS,
-            ty: wgpu::QueryType::Timestamp,
-        });
-
-        let timestamp_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Timestamp Buffer"),
-            size: std::mem::size_of::<u64>() as u64 * NUM_TIMESTAMPS as u64,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::QUERY_RESOLVE,
-            mapped_at_creation: false,
-        });
-
         Self {
             size,
             surface,
@@ -652,9 +598,6 @@ impl State {
             vector_field_bind_group,
             vector_field_texture,
 
-            timestamp_query_set,
-            timestamp_buffer,
-
             clear_color: wgpu::Color { r: 0.1, g: 0.2, b: 0.3, a: 1.0 },
         }
     }
@@ -683,7 +626,6 @@ impl State {
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Compute Command Encoder") });
 
-        encoder.write_timestamp(&self.timestamp_query_set, COMPUTEPASS_BEGIN_TIMESTAMP);
         let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("Compute Pass") });
         compute_pass.set_pipeline(&self.compute_pipeline);
         compute_pass.set_bind_group(0, &self.compute_bind_group, &[]);
@@ -691,8 +633,6 @@ impl State {
         compute_pass.dispatch_workgroups(((NUM_INSTANCES_PER_ROW * NUM_INSTANCES_PER_ROW) as f32 / 64f32).ceil() as u32, 1, 1);
         
         drop(compute_pass);
-        
-        encoder.write_timestamp(&self.timestamp_query_set, COMPUTEPASS_END_TIMESTAMP);
         
         self.queue.submit([encoder.finish()]);
     }
@@ -705,8 +645,6 @@ impl State {
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
-
-        encoder.write_timestamp(&self.timestamp_query_set, RENDERPASS_BEGIN_TIMESTAMP);
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
@@ -727,39 +665,15 @@ impl State {
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..)); //instance positions
         render_pass.draw(0..self.num_vertices, 0..self.instances.len() as u32);
-        
+
         //we no longer need the render pass object, we drop it because it has a 
         //mutable reference to our command encoder.
         drop(render_pass);
-
-        encoder.write_timestamp(&self.timestamp_query_set, RENDERPASS_END_TIMESTAMP);
 
         self.queue.submit([encoder.finish()]);
         output.present();
 
         Ok(())
-    }
-
-    fn get_debug_timings(&self) {
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Debug Encoder"),
-        });
-
-        encoder.resolve_query_set(&self.timestamp_query_set, 0..NUM_TIMESTAMPS, &self.timestamp_buffer, 0);
-
-        self.queue.submit([encoder.finish()]);
-
-        let timestamps = read_gpu_buffer(&self.device, &self.queue, &self.timestamp_buffer);
-
-        let timestamp_period = self.queue.get_timestamp_period() as f64;
-        let timestamps_ns = timestamps.iter()
-            .map(|ts| (*ts as f64) * timestamp_period).collect::<Vec<_>>();
-        
-        let compute_time_us = (timestamps_ns[COMPUTEPASS_END_TIMESTAMP as usize] - timestamps_ns[COMPUTEPASS_BEGIN_TIMESTAMP as usize]) / 1_000f64;
-        let render_time_us = (timestamps_ns[RENDERPASS_END_TIMESTAMP as usize] - timestamps_ns[RENDERPASS_BEGIN_TIMESTAMP as usize]) / 1_000f64;
-        
-        println!("Compute time: {:.2}us | Render time: {:.2}us", compute_time_us, render_time_us)
-
     }
 }
 
@@ -826,12 +740,6 @@ pub async fn run() {
                     } => { // either close requested or escape key pressed
                         *control_flow = ControlFlow::Exit
                     }
-                    WindowEvent::KeyboardInput {
-                        input: KeyboardInput {
-                            state: ElementState::Pressed, virtual_keycode: Some(VirtualKeyCode::T), ..
-                        },
-                        ..
-                    } => { state.get_debug_timings() },
                     WindowEvent::Resized(physical_size) => {
                         state.resize(*physical_size);
                     }
@@ -876,6 +784,7 @@ pub async fn run() {
 
                     frame_start = frame_end;
                 }
+                
             },
             Event::MainEventsCleared => {
                 // manually request a redraw after each loop of handling events.
