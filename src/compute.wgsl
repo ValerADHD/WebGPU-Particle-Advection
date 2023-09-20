@@ -43,8 +43,8 @@ fn create_basis(origin: vec4f, forward: vec3f, up: vec3f) -> mat4x4<f32> {
     return mat4x4<f32>(vec4f(right, 0.0), vec4f(up_basis, 0.0), vec4f(forward, 0.0), origin);
 }
 
-const NUM_STEPS = 1;
-const STEP_SIZE = 0.005;
+const NUM_STEPS = 100;
+const STEP_SIZE = 0.0005;
 
 @compute
 @workgroup_size(64)

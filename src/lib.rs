@@ -181,8 +181,7 @@ impl CameraUniform {
     }
 }
 
-const NUM_INSTANCES_PER_ROW: u64 = 100;
-
+const NUM_INSTANCES_PER_ROW: u64 = 1000;
 struct Instance {
     position: cgmath::Vector3<f32>,
     rotation: cgmath::Quaternion<f32>,
@@ -266,7 +265,7 @@ struct State {
     clear_color: wgpu::Color,
 }
 
-const FORCE_HIGH_PERFORMANCE: bool = true;
+const FORCE_HIGH_PERFORMANCE: bool = false;
 
 impl State {
     async fn new(window: Window) -> Self {
@@ -296,6 +295,12 @@ impl State {
         ).await.expect("Unable to create device!");
 
         let surface_caps = surface.get_capabilities(&adapter);
+
+        #[cfg(target_arch = "wasm32")]
+        log(&format!("GPU: {} | Driver: {}", adapter.get_info().name, adapter.get_info().driver));
+        
+        #[cfg(not(target_arch = "wasm32"))]
+        println!("GPU: {} | Driver: {}", adapter.get_info().name, adapter.get_info().driver);
 
         //sRGB surface
         let surface_format = surface_caps.formats.iter()
@@ -677,6 +682,13 @@ impl State {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+
 #[cfg_attr(target_arch="wasm32", wasm_bindgen(start))]
 pub async fn run() {
     cfg_if::cfg_if! {
@@ -707,7 +719,6 @@ pub async fn run() {
             .expect("Couldn't append canvas to document body");
     }
 
-
     let mut state = State::new(window).await;
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -722,8 +733,9 @@ pub async fn run() {
         let frame_start = perf.now();
         (perf, frame_start)
     };
-    
 
+    let program_start = frame_start;
+    
     event_loop.run(move |event, _, control_flow| {
         match event {
             // event is for correct window
@@ -767,6 +779,13 @@ pub async fn run() {
                         let elapsed = frame_start.elapsed().as_micros();
                         (elapsed as f64) / 1000f64
                     };
+                    
+                    println!("{}", frame_time_millis);
+
+                    if program_start.elapsed().as_millis() > 10_000 && program_start.elapsed().as_millis() < 10_500 {
+                        println!("10s elapsed!");
+                    }
+
                     let fps = 1000f64 / frame_time_millis;
     
                     state.window().set_title(&format!("frame time: {:.2} ms | {:.2} FPS", frame_time_millis, fps));
@@ -777,10 +796,13 @@ pub async fn run() {
                     let frame_time_millis = frame_end - frame_start;
                     let fps = 1000f64 / frame_time_millis;
 
-                    let doc = web_sys::window()
-                        .and_then(|win| win.document())
-                        .expect("unable to get document handle!");
-                    doc.set_title(&format!("frame time: {:.2} ms | {:.2} FPS", frame_time_millis, fps));
+                    //let doc = web_sys::window()
+                    //    .and_then(|win| win.document())
+                    //    .expect("unable to get document handle!");
+                    //doc.set_title(&format!("frame time: {:.2} ms | {:.2} FPS", frame_time_millis, fps));
+                    log(&format!("{:.2}", frame_time_millis));
+
+                    if frame_end - program_start > 10_000f64 && frame_end - program_start < 10_500f64 { log("10s passed!"); }
 
                     frame_start = frame_end;
                 }
