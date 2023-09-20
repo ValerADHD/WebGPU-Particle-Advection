@@ -3,11 +3,13 @@
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) tex_coords: vec2<f32>,
+    @builtin(instance_index) instance: u32,
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) tex_coords: vec2<f32>
+    @location(0) tex_coords: vec2<f32>,
+    @location(1) original_position: vec4<f32>,
 };
 
 struct CameraUniform {
@@ -24,6 +26,8 @@ struct InstanceInput {
 };
 
 const particle_radius = 0.01;
+
+const num_particles_per_row: f32 = 1000.0;
 
 @vertex
 fn vs_main(
@@ -43,6 +47,8 @@ fn vs_main(
     out.tex_coords = model.tex_coords;
     out.clip_position = base + vec4<f32>(model.position * particle_radius * 1.5, 0.0);
 
+    out.original_position = vec4f((f32(model.instance) % num_particles_per_row) / num_particles_per_row, 0.5, (floor(f32(model.instance) / num_particles_per_row)) / num_particles_per_row, 1.0);
+
     return out;
 }
 
@@ -58,5 +64,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.tex_coords * 2.0 - vec2f(1.0);
     let dist = length(uv);
     if dist > 1.0 { discard; }
-    return vec4f(1.0);
+    return in.original_position;
 }
