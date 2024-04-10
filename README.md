@@ -1,6 +1,15 @@
 # WebGPU-Particle-Advection
 test implementation of particle advection via WebGPU compute shaders
 
+## Presentations
+
+This work was done as part of the University of Oregon [CURE FYRE](https://urds.uoregon.edu/cure-awards/fyre) research program, under Professor Hank Childs. It was presented virtually in October of 2023, and will be presented at the University of Oregon Undergraduate Research Symposium in 2024.
+
+![Research summary poster. PDF is available in repo, in /reports folder.](https://github.com/ValerADHD/WebGPU-Particle-Advection/tree/master/report/CURE-Research-Summary-Poster.png)
+
+[![Thumbnail for SURF presentation video](https://github.com/ValerADHD/WebGPU-Particle-Advection/tree/master/report/surf-presentation-video-thumbnail.jpg)](https://www.youtube.com/watch?v=RdwhTKtMZgg)
+
+
 ## Building
 
 ### Native
